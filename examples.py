@@ -36,7 +36,7 @@ def parse_arguments():
         formatter_class=RawTextHelpFormatter)
 
     parser.add_argument('--path_to_model', nargs='?',
-                        type=str, default='../pretrained_models/',
+                        type=str, default='pretrained_models/',
                         help='Folder to Json files with pretrained nn models')
 
     parser.add_argument('--json_model', nargs='?',
@@ -47,7 +47,7 @@ def parse_arguments():
                              'BioSkinRGB: <rgb> to <skin properties> to <rgb>\n')
 
     parser.add_argument('--input_folder',  nargs='?',
-                        type=str, default='input_images/',
+                        type=str, default='test_images/',
                         help='Input Folder with diffuse albedos to reconstruct')
 
     parser.add_argument('--output_folder',  nargs='?',

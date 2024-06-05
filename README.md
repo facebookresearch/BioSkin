@@ -47,7 +47,12 @@ Simply run `python -m pip install .` and the package should be available by `imp
 
 ## Running
 To have an overview of the different use cases and practical applications, check _examples.py_.
-Run selecting the application with --mode. e.g.: --mode "Reconstruction".
+Run selecting the application with --mode. Example:
+```
+python examples.py --mode GUI --input_folder test_images/ --output_folder results/ --path_to_model pretrained_models/ 
+--json_model BioSkinAO --max_width 800
+```
+
 * _GUI_: Interactive estimation and editing tool. See next section.
 * _Reconstruction_: Estimates skin properties from diffuse albedo textures.
 * _Sampler_:  Skin tones sampler.
