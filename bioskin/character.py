@@ -47,6 +47,8 @@ class Character:
         self.albedo_map = io.load_image(self.path + self.name + self.extension, max_width=max_width)
         self.albedo_map_edited = self.albedo_map.copy()
         self.albedo_map_edited_last = self.albedo_map.copy()
+        self.has_speculars = False
+        self.masked = False
         if os.path.exists(self.path + self.name + "_mask" + self.extension):
             self.mask = io.load_image(self.path + self.name + "_mask" + self.extension, max_width=max_width)
             self.masked = True
