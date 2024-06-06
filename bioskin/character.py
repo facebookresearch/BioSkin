@@ -50,6 +50,9 @@ class Character:
         if os.path.exists(self.path + self.name + "_mask" + self.extension):
             self.mask = io.load_image(self.path + self.name + "_mask" + self.extension, max_width=max_width)
             self.masked = True
+        if os.path.exists(self.path + self.name + "_spec" + self.extension):
+            self.specular_map = io.load_image(self.path + self.name + "_spec" + self.extension, max_width=max_width)
+            self.has_speculars = True
 
     def param_index(self, param_name):
         for i in range(len(SKIN_PROPS)):
@@ -128,8 +131,10 @@ class Character:
             self.ir_map_edited_last = self.ir_map_edited.copy()
             if original:
                 self.ir_map = self.ir_map_edited.copy()
+
         if self.masked:
             self.apply_mask()
+
 
     def reconstruct_albedo(self, bio_skin, original=False):
         skin_props = self.pack_parameters()

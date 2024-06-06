@@ -19,6 +19,7 @@ def get_file_list(input_folder):
     filename_list = os.listdir(input_folder)
     # remove masks from the list (strings containing "_mask")
     filename_list = [filename for filename in filename_list if "_mask" not in filename]
+    filename_list = [filename for filename in filename_list if "_spec" not in filename]
 
     filename_list_no_ext = []
     extensions = []

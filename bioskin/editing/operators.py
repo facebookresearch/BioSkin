@@ -101,6 +101,16 @@ def flatten_peaks(img, x, max=None):
     img = torch.clamp(img, 0, 1)
     return img
 
+def offset(img, x, max=None):
+    if max:
+        img_max = max
+    else:
+        img_max = torch.mean(img)
+    if x < 0:
+        x *= img_max
+    img += x
+    img = torch.clamp(img, 0, 1)
+    return img
 
 def multiply(parameter_map, x, mean=None):
     # multiplies to even the average value to the value coming from the slider from -1 to 1
@@ -144,12 +154,14 @@ def apply_operator(parameter_map, operation, value, parameter=None):
         parameter_map = smooth(parameter_map, value, parameter.mean_masked() if parameter else None)
     elif operation == "enhance":
         parameter_map = enhance(parameter_map, value, parameter.map_edited if parameter else None)
-    elif operation == "blurr":
-        parameter_map = blur(parameter_map, value)
     elif operation == "fill_valleys":
         parameter_map = fill_lowest_values(parameter_map, value, parameter.min() if parameter else None)
     elif operation == "flatten_peaks":
         parameter_map = flatten_peaks(parameter_map, value, parameter.max() if parameter else None)
+    elif operation == "offset":
+        parameter_map = offset(parameter_map, value, parameter.mean_masked() if parameter else None)
+    elif operation == "blurr":
+        parameter_map = blur(parameter_map, value)
     else:
         print("Operator unknown!")
     return parameter_map

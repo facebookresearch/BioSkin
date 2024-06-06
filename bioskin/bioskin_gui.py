@@ -91,6 +91,8 @@ class ZoomView(QGraphicsView):
 
         # key to toggle edited/original
         self.toggleKey = Qt.Key_E
+        #key to toggle diffuse/diffuse+specular
+        self.toggleKey2 = Qt.Key_D
 
     def wheelEvent(self, event: QEvent):
         if event.angleDelta().y() > 0:
@@ -217,6 +219,10 @@ class AppearanceEditingController:
     def getAlbedoEdited(self):
         return self.characters[self.character].albedo_map_edited
 
+    def getSpecularMap(self):
+        if self.characters[self.character].has_speculars:
+            return self.characters[self.character].specular_map
+
     def getAlbedoIR(self):
         return self.characters[self.character].ir_map
 
@@ -230,20 +236,21 @@ class AppearanceEditingController:
         return self.characters[self.character].get_param_edited(str)
 
     def parameterManipulation(self, component: str, operator: int, sharpenValue: float,
-                              increaseValue: float, flattenValue: float, blurrValue: float):
-        if operator == 0 and sharpenValue != 0:
-            operation = "smooth" if sharpenValue < 0 else "enhance"
-            try:
-                self.characters[self.character].edit(component, operation, abs(sharpenValue))
-            except Exception as ex:
-                print(ex)
-        if operator == 1 and increaseValue != 0:
+                              increaseValue: float, offsetValue: float, flattenValue: float, blurrValue: float):
+        if operator == 0 and increaseValue != 0:
             operation = "multiply" if increaseValue < 0 else "multiply"
             try:
                 ch = self.characters[self.character]
                 increaseValue = SKIN_MIN_VALUES[ch.param_index(component)] + \
                                 increaseValue * SKIN_MAX_VALUES[ch.param_index(component)]
                 ch.edit(component, operation, increaseValue)
+            except Exception as ex:
+                print(ex)
+        if operator == 1 and offsetValue != 0:
+            operation = "offset"
+            try:
+                ch = self.characters[self.character]
+                ch.edit(component, operation, offsetValue)
             except Exception as ex:
                 print(ex)
         if operator == 2 and flattenValue != 0:
@@ -256,7 +263,15 @@ class AppearanceEditingController:
                 ch.edit(component, operation, flattenValue)
             except Exception as ex:
                 print(ex)
-        if operator == 3 and blurrValue != 0:
+
+        if operator == 3 and sharpenValue != 0:
+            operation = "smooth" if sharpenValue < 0 else "enhance"
+            try:
+                self.characters[self.character].edit(component, operation, abs(sharpenValue))
+            except Exception as ex:
+                print(ex)
+
+        if operator == 4 and blurrValue != 0:
             operation = "blurr"
             try:
                 ch = self.characters[self.character]
@@ -332,6 +347,10 @@ class AppearanceEditing(QMainWindow):
         showMenu.addAction(self.toggleAction)
         menuBar.addMenu(showMenu)
 
+        self.toggleAction2 = QAction("&Diffuse Only", showMenu, checkable=True)
+        self.toggleAction2.triggered.connect(self.updateZoomableImageShowButton)
+        showMenu.addAction(self.toggleAction2)
+
         if json_model != 'BioSkinRGB':
             showAction1 = QAction("&Visible Range", showMenu)
             showAction1.triggered.connect(self.updateZoomableImageShowButton)
@@ -403,15 +422,26 @@ class AppearanceEditing(QMainWindow):
         self.progressBar.setValue(66)
         self.zoomWidget.fitInView()
         self.updateDockWidget()
+        albedo = self.ae.getAlbedo().copy()
+        albedo_edited = self.ae.getAlbedoEdited().copy()
+
+        specular_map = self.ae.getSpecularMap()
+        if specular_map is not None:
+            albedo += specular_map
+            albedo_edited += specular_map
+
         self.zoomWidget.updateView(
-            pixmap_from_array(self.ae.getAlbedo()),
-            pixmap_from_array(self.ae.getAlbedoEdited()))
+            pixmap_from_array(albedo),
+            pixmap_from_array(albedo_edited))
         self.progressBar.setValue(0)
 
     def keyPressEvent(self, event: QEvent):
         if event.key() == self.zoomWidget.toggleKey:
             self.toggleAction.setChecked(not self.toggleAction.isChecked())
             self.toggleAction.triggered.emit()
+        elif event.key() == self.zoomWidget.toggleKey2:
+            self.toggleAction2.setChecked(not self.toggleAction2.isChecked())
+            self.toggleAction2.triggered.emit()
         event.accept()
 
     def eventFilter(self, source: QObject, event: QEvent):
@@ -447,13 +477,14 @@ class AppearanceEditing(QMainWindow):
         self.ae.resetAlbedo()
         self.setCharacter(self.ae.character)
 
-    def resetSkinProperty(self, sliderEnhance, sliderIncrease, sliderFlatten, sliderBlurr, label):
+    def resetSkinProperty(self, sliderEnhance, sliderIncrease, sliderOffset, sliderFlatten, sliderBlurr, label):
         self.progressBar.setValue(30)
         self.progressBar.setValue(60)
         self.ae.resetSkinProperty(self.currentActiveComponent)
 
         sliderEnhance.setValue(0)
         sliderIncrease.setValue(0)
+        sliderOffset.setValue(0)
         sliderFlatten.setValue(0)
         sliderBlurr.setValue(0)
 
@@ -492,11 +523,20 @@ class AppearanceEditing(QMainWindow):
         # run albedo generation
         self.progressBar.setValue(50)
         self.ae.generateAlbedo()
-        pixmap = pixmap_from_array(self.ae.getAlbedoEdited())
+
+        albedo = self.ae.getAlbedo().copy()
+        albedo_edited = self.ae.getAlbedoEdited().copy()
+
+        specular_map = self.ae.getSpecularMap()
+        if specular_map is not None and not self.toggleAction2.isChecked():
+            albedo += specular_map
+            albedo_edited += specular_map
+
+        pixmap = pixmap_from_array(albedo_edited)
         # self.save_for_renderer(self.ae.getAlbedoEdited())
 
         # original
-        pixmap_orig = pixmap_from_array(self.ae.getAlbedo())
+        pixmap_orig = pixmap_from_array(albedo)
 
         # set gui
         self.zoomWidget.updateView(pixmap, pixmap_orig)
@@ -553,17 +593,19 @@ class AppearanceEditing(QMainWindow):
             lambda event, pixmap=pixmap, pixmap_orig=pixmap_orig: self.zoomWidget.updateView(pixmap, pixmap_orig)
 
     # update images after parameter manipulation
-    def parameterManipulation(self, sliderEnhance, sliderIncrease, sliderFlatten, sliderBlurr, label, component,
-                              operation):
+    def parameterManipulation(self, sliderEnhance, sliderIncrease, sliderOffset, sliderFlatten, sliderBlurr, label,
+                              component, operation):
         start = time.time()
         self.progressBar.setValue(30)
 
         # edit
         sharpenValue = sliderEnhance.value() / 100
         increaseValue = sliderIncrease.value() / 100
+        offsetValue = sliderOffset.value() / 100
         flattenValue = sliderFlatten.value() / 100
         blurrValue = sliderBlurr.value() / 100
-        self.ae.parameterManipulation(component, operation, sharpenValue, increaseValue, flattenValue, blurrValue)
+        self.ae.parameterManipulation(component, operation, sharpenValue, increaseValue, offsetValue, flattenValue,
+                                      blurrValue)
         self.progressBar.setValue(60)
 
         # create pixmaps
@@ -579,8 +621,16 @@ class AppearanceEditing(QMainWindow):
         # print("Manipulate parameters takes {}".format(end - start))
 
     def updateZoomableImageShowButton(self):
-        pixmap = pixmap_from_array(self.ae.getAlbedoEdited())
-        pixmap_orig = pixmap_from_array(self.ae.getAlbedo())
+        albedo = self.ae.getAlbedo().copy()
+        albedo_edited = self.ae.getAlbedoEdited().copy()
+
+        specular_map = self.ae.getSpecularMap()
+        if specular_map is not None and not self.toggleAction2.isChecked():
+            albedo += specular_map
+            albedo_edited += specular_map
+
+        pixmap = pixmap_from_array(albedo_edited)
+        pixmap_orig = pixmap_from_array(albedo)
         self.zoomWidget.updateView(pixmap, pixmap_orig)
 
     def updateZoomableImageShowButtonIR(self):
@@ -628,15 +678,23 @@ class AppearanceEditing(QMainWindow):
             valueBlurr = QLabel(newWidget)
             valueBlurr.setFixedWidth(40)
 
-            labelIncrease = QLabel("Decrease/Increase:", newWidget)
-            labelIncrease.setToolTip("Decrease/Increase total volume")
+            labelIncrease = QLabel("Scale:", newWidget)
+            labelIncrease.setToolTip("Scales the pixel values by a multiplier.")
             sliderIncrease = QSlider(Qt.Horizontal, newWidget)
             sliderIncrease.setRange(-100, 100)
             sliderIncrease.setValue(0)
             valueIncrease = QLabel(newWidget)
 
-            labelFlatten = QLabel("Flattening:", newWidget)
-            labelFlatten.setToolTip("Flattening map")
+            labelOffset = QLabel("Offset:", newWidget)
+            labelOffset.setToolTip("Adds or subtracts a constant value to every pixel.")
+            sliderOffset = QSlider(Qt.Horizontal, newWidget)
+            sliderOffset.setRange(-100, 100)
+            sliderOffset.setValue(0)
+            valueOffset = QLabel(newWidget)
+
+            labelFlatten = QLabel("Floor/Ceiling:", newWidget)
+            labelFlatten.setToolTip("Adds value to pixels below a certain threshold / "
+                                    "value is subtracted from pixels above a certain threshold.")
             sliderFlatten = QSlider(Qt.Horizontal, newWidget)
             sliderFlatten.setRange(-100, 100)
             sliderFlatten.setValue(0)
@@ -644,59 +702,74 @@ class AppearanceEditing(QMainWindow):
 
             labelComponent = QLabel()
 
-            # add smooth/sharpen to the gui
-            sliderEnhance.valueChanged.connect(lambda value, label=valueSharpen: label.setText(str(value / 100)))
-            sliderEnhance.valueChanged.connect(lambda value, sliderIncrease=sliderIncrease: sliderIncrease.setValue(0))
-            sliderEnhance.valueChanged.connect(
-                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderFlatten=sliderFlatten,
-                       sliderBlurr=sliderBlurr, label=labelComponent, component=component:
-                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderFlatten, sliderBlurr, label, component,
-                                           0))
-            sliderEnhance.valueChanged.emit(sliderEnhance.value())
 
-            # add decrease/increase to the gui
+            # add scale operator to the gui
             sliderIncrease.valueChanged.connect(lambda value, label=valueIncrease: label.setText(str(value / 100)))
             sliderIncrease.valueChanged.connect(
-                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderFlatten=sliderFlatten,
-                       sliderBlurr=sliderBlurr, label=labelComponent, component=component:
-                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderFlatten, sliderBlurr, label, component,
-                                           1))
+                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderOffset=sliderOffset,
+                       sliderFlatten=sliderFlatten, sliderBlurr=sliderBlurr, label=labelComponent, component=component:
+                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderOffset, sliderFlatten, sliderBlurr,
+                                           label, component, 0))
             sliderIncrease.valueChanged.emit(sliderIncrease.value())
+
+            # add offset operator to the gui
+            sliderOffset.valueChanged.connect(lambda value, label=valueOffset: label.setText(str(value / 100)))
+            sliderOffset.valueChanged.connect(
+                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderOffset=sliderOffset,
+                       sliderFlatten=sliderFlatten, sliderBlurr=sliderBlurr, label=labelComponent, component=component:
+                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderOffset, sliderFlatten, sliderBlurr,
+                                           label, component, 1))
+            sliderOffset.valueChanged.emit(sliderOffset.value())
 
             # add flatten to the gui
             sliderFlatten.valueChanged.connect(lambda value, label=valueFlatten: label.setText(str(value / 100)))
             sliderFlatten.valueChanged.connect(
-                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderFlatten=sliderFlatten,
-                       sliderBlurr=sliderBlurr, label=labelComponent, component=component:
-                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderFlatten, sliderBlurr, label, component,
-                                           2))
+                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderOffset=sliderOffset,
+                       sliderFlatten=sliderFlatten, sliderBlurr=sliderBlurr, label=labelComponent, component=component:
+                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderOffset, sliderFlatten, sliderBlurr,
+                                           label, component, 2))
             sliderFlatten.valueChanged.emit(sliderFlatten.value())
+
+            # add smooth/sharpen operator to the gui
+            sliderEnhance.valueChanged.connect(lambda value, label=valueSharpen: label.setText(str(value / 100)))
+            sliderEnhance.valueChanged.connect(lambda value, sliderIncrease=sliderIncrease: sliderIncrease.setValue(0))
+            sliderEnhance.valueChanged.connect(
+                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderOffset=sliderOffset,
+                       sliderFlatten=sliderFlatten, sliderBlurr=sliderBlurr, label=labelComponent, component=component:
+                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderOffset, sliderFlatten, sliderBlurr,
+                                           label, component, 3))
+            sliderEnhance.valueChanged.emit(sliderEnhance.value())
 
             # add blurr to the gui
             sliderBlurr.valueChanged.connect(lambda value, label=valueBlurr: label.setText(str(value / 100)))
             sliderBlurr.valueChanged.connect(
-                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderFlatten=sliderFlatten,
-                       sliderBlurr=sliderBlurr, label=labelComponent, component=component:
-                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderFlatten, sliderBlurr, label, component,
-                                           3))
+                lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease, sliderOffset=sliderOffset,
+                       sliderFlatten=sliderFlatten, sliderBlurr=sliderBlurr, label=labelComponent, component=component:
+                self.parameterManipulation(sliderEnhance, sliderIncrease, sliderOffset, sliderFlatten, sliderBlurr,
+                                           label, component, 4))
             sliderFlatten.valueChanged.emit(sliderFlatten.value())
 
             boxlayout = QGridLayout()
 
-            # decrease/increase
+            # scale
             boxlayout.addWidget(labelIncrease, 0, 0)
             boxlayout.addWidget(sliderIncrease, 0, 1)
             boxlayout.addWidget(valueIncrease, 0, 2)
 
-            # flatten
-            boxlayout.addWidget(labelFlatten, 1, 0)
-            boxlayout.addWidget(sliderFlatten, 1, 1)
-            boxlayout.addWidget(valueFlatten, 1, 2)
+            # offset
+            boxlayout.addWidget(labelOffset, 1, 0)
+            boxlayout.addWidget(sliderOffset, 1, 1)
+            boxlayout.addWidget(valueOffset, 1, 2)
 
-            # sharpen
+            # smooth/sharpen
             boxlayout.addWidget(labelEnhance, 2, 0)
             boxlayout.addWidget(sliderEnhance, 2, 1)
             boxlayout.addWidget(valueSharpen, 2, 2)
+
+            # flatten
+            boxlayout.addWidget(labelFlatten, 3, 0)
+            boxlayout.addWidget(sliderFlatten, 3, 1)
+            boxlayout.addWidget(valueFlatten, 3, 2)
 
             # # blurr
             # boxlayout.addWidget(labelBlurr, 3, 0)
@@ -705,16 +778,16 @@ class AppearanceEditing(QMainWindow):
 
             button_reset_parameter = QPushButton("Reset Property")
             button_reset_parameter.clicked.connect(lambda _, sliderEnhance=sliderEnhance, sliderIncrease=sliderIncrease,
-                                                          sliderFlatten=sliderFlatten, sliderBlurr=sliderBlurr,
-                                                          label=labelComponent:
-                                                   self.resetSkinProperty(sliderEnhance, sliderIncrease, sliderFlatten,
-                                                                          sliderBlurr, label))
-            boxlayout.addWidget(button_reset_parameter, 3, 1)
+                                                          sliderOffset=sliderOffset, sliderFlatten=sliderFlatten,
+                                                          sliderBlurr=sliderBlurr, label=labelComponent:
+                                                   self.resetSkinProperty(sliderEnhance, sliderIncrease, sliderOffset,
+                                                                          sliderFlatten, sliderBlurr, label))
+            boxlayout.addWidget(button_reset_parameter, 4, 1)
 
             button_load_parameter = QPushButton("Load from File")
             button_load_parameter.clicked.connect(lambda _, label=labelComponent, param=component:
                                                   self.loadSkinProperty(label, param))
-            boxlayout.addWidget(button_load_parameter, 4, 1)
+            boxlayout.addWidget(button_load_parameter, 5, 1)
 
             # images
             groupbox = QTabWidget()
